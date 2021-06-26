@@ -1,0 +1,130 @@
+version: '2.3'
+
+services:
+  diun:
+    image: crazymax/diun:latest
+    container_name: diun
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        ipv6_address: 2a03:4000:4f:e70:d001::3
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/diun/custom-images.yml:/custom-images.yml:ro
+      - diun-data:/data
+    environment:
+      - TZ=Europe/Paris
+      - LOG_LEVEL=info
+      - LOG_JSON=false
+      - DIUN_WATCH_WORKERS=20
+      - DIUN_WATCH_SCHEDULE=0 */6 * * *
+      - DIUN_WATCH_FIRSTCHECKNOTIF=true
+      - DIUN_PROVIDERS_DOCKER=true
+      - DIUN_PROVIDERS_DOCKER_WATCHSTOPPED=true
+      - DIUN_PROVIDERS_FILE_FILENAME=/custom-images.yml
+      - DIUN_NOTIF_MAIL_HOST=host.docker.internal
+      - DIUN_NOTIF_MAIL_INSECURESKIPVERIFY=true
+      - DIUN_NOTIF_MAIL_FROM=diun@mc-w.eu
+      - DIUN_NOTIF_MAIL_TO=thomas@abroell.com
+    labels:
+      - diun.enable=true
+
+  traefik:
+    image: traefik:latest
+    container_name: traefik
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      default:
+        ipv6_address: 2a03:4000:4f:e70:d001::2
+      traefik_proxy:
+    ports:
+      - 80:80
+      - 443:443
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./config/traefik/traefik.yml:/traefik.yml:ro
+      - ./config/traefik/dynamic_conf.yml:/dynamic_conf.yml:ro
+      - ./config/traefik/acme.json:/acme.json
+    environment:
+      - INWX_USERNAME=${TRAEFIK_INWX_USERNAME}
+      - INWX_PASSWORD=${TRAEFIK_INWX_PASSWORD}
+      - INWX_PROPAGATION_TIMEOUT=600
+    labels:
+      - diun.enable=true
+      - providers.file.filename=/dynamic_conf.yml
+      - providers.file.watch=true
+      - traefik.enable=true
+      - traefik.http.middlewares.traefik-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.traefik-https-redirect.redirectscheme.permanent=true
+      - traefik.http.middlewares.traefik-auth.basicauth.users=${TRAEFIK_BASICAUTH}
+      - traefik.http.routers.traefik-http.rule=Host(`${TRAEFIK_URL}`)
+      - traefik.http.routers.traefik-http.entrypoints=http
+      - traefik.http.routers.traefik-http.middlewares=traefik-https-redirect
+      - traefik.http.routers.traefik-https.rule=Host(`${TRAEFIK_URL}`)
+      - traefik.http.routers.traefik-https.entrypoints=https
+      - traefik.http.routers.traefik-https.middlewares=traefik-auth
+      - traefik.http.routers.traefik-https.tls=true
+      - traefik.http.routers.traefik-https.tls.certresolver=inwx
+      - traefik.http.routers.traefik-https.tls.domains[0].main=abroell.com
+      - traefik.http.routers.traefik-https.tls.domains[0].sans=*.abroell.com
+      - traefik.http.routers.traefik-https.tls.domains[1].main=emerald-dragons.de
+      - traefik.http.routers.traefik-https.tls.domains[1].sans=*.emerald-dragons.de
+      - traefik.http.routers.traefik-https.tls.domains[2].main=mc-w.eu
+      - traefik.http.routers.traefik-https.tls.domains[2].sans=*.mc-w.eu
+      - traefik.http.routers.traefik-https.service=api@internal
+
+  portainer:
+    image: portainer/portainer-ce:alpine
+    container_name: portainer
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    networks:
+      traefik_proxy:
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - ./data/portainer:/data
+    labels:
+      - diun.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=traefik_proxy
+      - traefik.http.middlewares.portainer-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.portainer-https-redirect.redirectscheme.permanent=true
+      - traefik.http.routers.portainer-http.rule=Host(`${PORTAINER_URL}`)
+      - traefik.http.routers.portainer-http.entrypoints=http
+      - traefik.http.routers.portainer-http.middlewares=portainer-https-redirect
+      - traefik.http.routers.portainer-http.service=portainer
+      - traefik.http.routers.portainer-https.rule=Host(`${PORTAINER_URL}`)
+      - traefik.http.routers.portainer-https.entrypoints=https
+      - traefik.http.routers.portainer-https.middlewares=secHeaders@file
+      - traefik.http.routers.portainer-https.tls=true
+      - traefik.http.routers.portainer-https.service=portainer
+      - traefik.http.services.portainer.loadbalancer.server.port=9000
+
+volumes:
+  diun-data:
+
+networks:
+  default:
+    enable_ipv6: true
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.16.7.0/24
+        - subnet: 2a03:4000:4f:e70:d001::/80
+          gateway: 2a03:4000:4f:e70:d001::1
+  traefik_proxy:
+    external: true

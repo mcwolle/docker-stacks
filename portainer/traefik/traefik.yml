@@ -1,0 +1,30 @@
+#log:
+#  level: DEBUG
+
+api:
+  dashboard: true
+
+entryPoints:
+  http:
+    address: ":80"
+  https:
+    address: ":443"
+
+providers:
+  docker:
+    endpoint: "unix:///var/run/docker.sock"
+    exposedByDefault: false
+  file:
+    filename: "/dynamic_conf.yml"
+
+certificatesResolvers:
+  inwx:
+    acme:
+      #caserver: https://acme-staging-v02.api.letsencrypt.org/directory
+      email: thomas@abroell.com
+      storage: acme.json
+      dnsChallenge:
+        provider: inwx
+        resolvers:
+          - "ns.inwx.de"
+        delayBeforeCheck: 420
