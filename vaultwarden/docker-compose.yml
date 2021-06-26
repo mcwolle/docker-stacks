@@ -1,0 +1,61 @@
+version: '3.5'
+
+services:
+  vaultwarden:
+    image: vaultwarden/server:alpine
+    container_name: vaultwarden
+    restart: unless-stopped
+    networks:
+      default:
+      traefik_proxy:
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /opt/portainer/data/vaultwarden:/data
+    environment:
+      - DOMAIN=https://${VAULTWARDEN_URL}
+      - WEBSOCKET_ENABLED=true
+      - VAULTWARDEN_ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN}
+      - SIGNUPS_ALLOWED=false
+      - INVITATIONS_ALLOWED=true
+      - SHOW_PASSWORD_HINT=false
+      - SMTP_HOST=host.docker.internal
+      - SMTP_FROM=vaultwarden@mc-w.eu
+      - SMTP_FROM_NAME=Vaultwarden
+      - SMTP_SSL=false
+    labels:
+      - diun.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=traefik_proxy
+      - traefik.http.middlewares.vaultwarden-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.vaultwarden-https-redirect.redirectscheme.permanent=true
+      - traefik.http.routers.vaultwarden-http.rule=Host(`${VAULTWARDEN_URL}`)
+      - traefik.http.routers.vaultwarden-http.entrypoints=http
+      - traefik.http.routers.vaultwarden-http.middlewares=vaultwarden-https-redirect
+      - traefik.http.routers.vaultwarden-http.service=vaultwarden
+      - traefik.http.routers.vaultwarden-https.rule=Host(`${VAULTWARDEN_URL}`)
+      - traefik.http.routers.vaultwarden-https.entrypoints=https
+      - traefik.http.routers.vaultwarden-https.middlewares=secHeaders@file
+      - traefik.http.routers.vaultwarden-https.tls=true
+      - traefik.http.routers.vaultwarden-https.service=vaultwarden
+      - traefik.http.services.vaultwarden.loadbalancer.server.port=80
+      - traefik.http.routers.vaultwarden-ws-http.rule=Host(`${VAULTWARDEN_URL}`) && Path(`/notifications/hub`)
+      - traefik.http.routers.vaultwarden-ws-http.entrypoints=http
+      - traefik.http.routers.vaultwarden-ws-http.middlewares=vaultwarden-https-redirect
+      - traefik.http.routers.vaultwarden-ws-http.service=vaultwarden-ws
+      - traefik.http.routers.vaultwarden-ws-https.rule=Host(`${VAULTWARDEN_URL}`) && Path(`/notifications/hub`)
+      - traefik.http.routers.vaultwarden-ws-https.entrypoints=https
+      - traefik.http.routers.vaultwarden-ws-https.middlewares=secHeaders@file
+      - traefik.http.routers.vaultwarden-ws-https.tls=true
+      - traefik.http.routers.vaultwarden-ws-https.service=vaultwarden-ws
+      - traefik.http.services.vaultwarden-ws.loadbalancer.server.port=3012
+
+networks:
+  traefik_proxy:
+    external: true
+  default:
+    ipam:
+      config:
+        - subnet: 172.16.2.0/24

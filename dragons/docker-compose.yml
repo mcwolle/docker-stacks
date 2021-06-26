@@ -1,0 +1,83 @@
+version: '3.5'
+
+services:
+  dragons-db:
+    image: mariadb:latest
+    container_name: dragons-db
+    restart: unless-stopped
+    command: --transaction-isolation=READ-COMMITTED --log-bin=ROW
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - dragons-db:/var/lib/mysql
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASS}
+      - MARIADB_DATABASE=emeralddragons_wcf2
+      - MARIADB_USER=emeralddragons
+      - MARIADB_PASSWORD=${DRAGONS_DB_PASS}
+      - MARIADB_INITDB_SKIP_TZINFO=1
+    labels:
+      - diun.enable=true
+
+  dragons-php:
+    build:
+      context: .
+      dockerfile: /opt/portainer/config/dragons/php/Dockerfile
+    container_name: dragons-php
+    restart: unless-stopped
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /opt/portainer/data/dragons:/www
+    labels:
+      - diun.enable=true
+
+  dragons-nginx:
+    image: nginx:mainline-alpine
+    container_name: dragons-nginx
+    restart: unless-stopped
+    depends_on:
+      - dragons-db
+      - dragons-php
+    networks:
+      default:
+      traefik_proxy:
+    user: 82:82
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /opt/portainer/config/dragons/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /opt/portainer/config/dragons/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - /opt/portainer/data/dragons:/www
+    labels:
+      - diun.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=traefik_proxy
+      - traefik.http.middlewares.dragons-app-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.dragons-app-https-redirect.redirectscheme.permanent=true
+      - traefik.http.middlewares.dragons-app-www-redirect.redirectregex.regex=^https://www.${DRAGONS_URL}/(.*)
+      - traefik.http.middlewares.dragons-app-www-redirect.redirectregex.replacement=https://${DRAGONS_URL}/$${1}
+      - traefik.http.middlewares.dragons-app-www-redirect.redirectregex.permanent=true
+      - traefik.http.routers.dragons-app-http.rule=Host(`${DRAGONS_URL}`) || Host(`www.${DRAGONS_URL}`)
+      - traefik.http.routers.dragons-app-http.entrypoints=http
+      - traefik.http.routers.dragons-app-http.middlewares=dragons-app-https-redirect
+      - traefik.http.routers.dragons-app-http.service=dragons-app
+      - traefik.http.routers.dragons-app-https.rule=Host(`${DRAGONS_URL}`) || Host(`www.${DRAGONS_URL}`)
+      - traefik.http.routers.dragons-app-https.entrypoints=https
+      - traefik.http.routers.dragons-app-https.middlewares=dragons-app-www-redirect,secHeaders@file
+      - traefik.http.routers.dragons-app-https.tls=true
+      - traefik.http.routers.dragons-app-https.service=dragons-app
+      - traefik.http.services.dragons-app.loadbalancer.server.port=80
+
+volumes:
+  dragons-db:
+
+networks:
+  traefik_proxy:
+    external: true
+  default:
+    ipam:
+      config:
+        - subnet: 172.16.6.0/24

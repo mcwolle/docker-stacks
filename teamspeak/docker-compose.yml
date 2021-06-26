@@ -1,0 +1,31 @@
+version: '2.3'
+
+services:
+  teamspeak:
+    image: teamspeak:latest
+    container_name: teamspeak
+    restart: unless-stopped
+    networks:
+      default:
+        ipv6_address: 2a03:4000:4f:e70:d002::2
+    ports:
+      - 9987:9987/udp
+      - 10011:10011
+      - 30033:30033
+    volumes:
+      - /opt/portainer/data/teamspeak:/var/ts3server
+    environment:
+      TS3SERVER_LICENSE: accept
+    labels:
+      - diun.enable=true
+
+networks:
+  default:
+    enable_ipv6: true
+    driver: bridge
+    ipam:
+      driver: default
+      config:
+        - subnet: 172.16.4.0/24
+        - subnet: 2a03:4000:4f:e70:d002::/80
+          gateway: 2a03:4000:4f:e70:d002::1

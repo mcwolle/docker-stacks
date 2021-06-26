@@ -1,0 +1,140 @@
+version: '3.5'
+
+services:
+  nextcloud-db:
+    image: mariadb:latest
+    container_name: nextcloud-db
+    restart: unless-stopped
+    command: --transaction-isolation=READ-COMMITTED --log-bin=ROW
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - nextcloud-db:/var/lib/mysql
+    environment:
+      - MARIADB_ROOT_PASSWORD=${MARIADB_ROOT_PASS}
+      - MARIADB_DATABASE=nextcloud
+      - MARIADB_USER=nextcloud
+      - MARIADB_PASSWORD=${NEXTCLOUD_DB_PASS}
+      - MARIADB_INITDB_SKIP_TZINFO=1
+    labels:
+      - diun.enable=true
+
+  nextcloud-redis:
+    image: redis:alpine
+    container_name: nextcloud-redis
+    restart: unless-stopped
+    command: redis-server --requirepass ${NEXTCLOUD_REDIS_PASS}
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - nextcloud-redis-data:/data
+    labels:
+      - diun.enable=true
+
+  nextcloud-coturn:
+    image: instrumentisto/coturn
+    container_name: nextcloud-coturn
+    restart: unless-stopped
+    command:
+      - -n
+      - --log-file=stdout
+      - --external-ip=185.216.179.167
+      - --listening-port=3478
+      - --min-port=49160
+      - --max-port=49200
+      - --no-cli
+      - --no-tlsv1
+      - --no-tlsv1_1
+      - --fingerprint
+      - --use-auth-secret
+      - --static-auth-secret=${NEXTCLOUD_COTURN_SECRET}
+      - --realm=${NEXTCLOUD_URL}
+      - --total-quota=100
+      - --bps-capacity=0
+      - --stale-nonce
+      - --no-multicast-peers
+    ports:
+      - 3478:3478/tcp
+      - 3478:3478/udp
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - nextcloud-coturn-data:/var/lib/coturn
+    labels:
+      - diun.enable=true
+
+  nextcloud-app:
+    image: nextcloud:fpm-alpine
+    container_name: nextcloud-app
+    hostname: ${NEXTCLOUD_URL}
+    restart: unless-stopped
+    depends_on:
+      - nextcloud-db
+      - nextcloud-redis
+    extra_hosts:
+      - host.docker.internal:host-gateway
+    user: 82:82
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /opt/portainer/data/nextcloud/app:/var/www/html
+      - /opt/portainer/data/nextcloud/data:/var/www/html/data
+    environment:
+      - MYSQL_HOST=nextcloud-db
+      - MYSQL_DATABASE=nextcloud
+      - MYSQL_USER=nextcloud
+      - MYSQL_PASSWORD=${NEXTCLOUD_DB_PASS}
+      - REDIS_HOST=nextcloud-redis
+      - REDIS_HOST_PASSWORD=${NEXTCLOUD_REDIS_PASS}
+      - TRUSTED_PROXIES=172.24.0.2/16
+    labels:
+      - diun.enable=true
+
+  nextcloud-nginx:
+    image: nginx:mainline-alpine
+    container_name: nextcloud-nginx
+    restart: unless-stopped
+    depends_on:
+      - nextcloud-app
+    networks:
+      default:
+      traefik_proxy:
+    user: 82:82
+    volumes:
+      - /etc/localtime:/etc/localtime:ro
+      - /etc/timezone:/etc/timezone:ro
+      - /opt/portainer/config/nextcloud/nginx.conf:/etc/nginx/nginx.conf:ro
+    volumes_from:
+      - nextcloud-app
+    labels:
+      - diun.enable=true
+      - traefik.enable=true
+      - traefik.docker.network=traefik_proxy
+      - traefik.http.middlewares.nextcloud-app-https-redirect.redirectscheme.scheme=https
+      - traefik.http.middlewares.nextcloud-app-https-redirect.redirectscheme.permanent=true
+      - traefik.http.middlewares.nextcloud-dav.replacepathregex.regex=^/.well-known/ca(l|rd)dav
+      - traefik.http.middlewares.nextcloud-dav.replacepathregex.replacement=/remote.php/dav/
+      - traefik.http.routers.nextcloud-app-http.rule=Host(`${NEXTCLOUD_URL}`)
+      - traefik.http.routers.nextcloud-app-http.entrypoints=http
+      - traefik.http.routers.nextcloud-app-http.middlewares=nextcloud-app-https-redirect
+      - traefik.http.routers.nextcloud-app-http.service=nextcloud-app
+      - traefik.http.routers.nextcloud-app-https.rule=Host(`${NEXTCLOUD_URL}`)
+      - traefik.http.routers.nextcloud-app-https.entrypoints=https
+      - traefik.http.routers.nextcloud-app-https.middlewares=nextcloud-dav,secHeaders@file
+      - traefik.http.routers.nextcloud-app-https.tls=true
+      - traefik.http.routers.nextcloud-app-https.service=nextcloud-app
+      - traefik.http.services.nextcloud-app.loadbalancer.server.port=80
+
+volumes:
+  nextcloud-db:
+  nextcloud-redis-data:
+  nextcloud-coturn-data:
+
+networks:
+  traefik_proxy:
+    external: true
+  default:
+    ipam:
+      config:
+        - subnet: 172.16.1.0/24
+
