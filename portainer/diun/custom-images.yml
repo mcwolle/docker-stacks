@@ -1,0 +1,2 @@
+- name: php:7.4-fpm-alpine
+- name: jacobalberty/unifi:latest
