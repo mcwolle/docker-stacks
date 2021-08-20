@@ -17,7 +17,7 @@ services:
     environment:
       - DOMAIN=https://${VAULTWARDEN_URL}
       - WEBSOCKET_ENABLED=true
-      - VAULTWARDEN_ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN}
+      - ADMIN_TOKEN=${VAULTWARDEN_ADMIN_TOKEN}
       - SIGNUPS_ALLOWED=false
       - INVITATIONS_ALLOWED=true
       - SHOW_PASSWORD_HINT=false
